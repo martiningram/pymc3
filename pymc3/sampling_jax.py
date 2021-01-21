@@ -181,7 +181,6 @@ def sample_numpyro_nuts(
     tic4 = pd.Timestamp.now()
 
     az_trace = az.from_dict(posterior=posterior)
-    tic3 = pd.Timestamp.now()
     print("Compilation + sampling time = ", tic3 - tic2)
     print("Transformation time = ", tic4 - tic3)
 
