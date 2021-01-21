@@ -2,6 +2,7 @@
 import os
 import re
 import warnings
+from collections import defaultdict
 
 xla_flags = os.getenv("XLA_FLAGS", "").lstrip("--")
 xla_flags = re.sub(r"xla_force_host_platform_device_count=.+\s", "", xla_flags).split()
@@ -175,8 +176,47 @@ def sample_numpyro_nuts(
     # print("Sampling time = ", tic4 - tic3)
 
     posterior = {k: v for k, v in zip(rv_names, mcmc_samples)}
+    tic3 = pd.Timestamp.now()
+    posterior = _transform_samples(posterior, model)
+    tic4 = pd.Timestamp.now()
 
     az_trace = az.from_dict(posterior=posterior)
     tic3 = pd.Timestamp.now()
     print("Compilation + sampling time = ", tic3 - tic2)
+    print("Transformation time = ", tic4 - tic3)
+
     return az_trace  # , leapfrogs_taken, tic3 - tic2
+
+
+def _transform_samples(samples, model):
+
+    # Work out chains and samples from one array of samples:
+    first_val = next(iter(samples.values()))
+    n_samples, n_chains = first_val.shape[0], first_val.shape[1]
+
+    # This includes transformed RVs:
+    var_names = model.unobserved_RVs
+    var_names_str = [x.name for x in var_names]
+
+    # This function computes the values of the desired variables
+    eval_fun = model.fastfn(var_names)
+
+    sample_dict = defaultdict(lambda: [[]] * n_chains)
+
+    for chain in range(n_chains):
+        for sample in range(n_samples):
+
+            # Pick out the current draw
+            cur_draw = {x: y[chain, sample] for x, y in samples.items()}
+
+            # Evaluate the model function to find values of other variables
+            cur_eval_res = eval_fun(cur_draw)
+
+            # Record
+            for cur_var_name, cur_value in zip(var_names_str, cur_eval_res):
+
+                sample_dict[cur_var_name][chain].append(cur_value)
+
+    sample_dict = {x: np.array(y) for x, y in sample_dict.items()}
+
+    return sample_dict
